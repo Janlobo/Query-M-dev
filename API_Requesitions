@@ -1,0 +1,99 @@
+//*** Exemplo de requisição de API localizada em http://localhost:8080/medicos?page=1 ***//
+
+// Exemplo resumido de Conteúdo da API
+//************************************
+{
+    "content": [
+        {
+            "id": 1,
+            "nome": "Antonio Carlos",
+            "email": "antonio@email.com.br",
+            "crm": "000000",
+            "especialidade": "DERMATOLOGIA"
+        },
+        {
+            "id": 28,
+            "nome": "AntÃ´nio Melo",
+            "email": "antonio.melo@email.com.br",
+            "crm": "681865",
+            "especialidade": "GINECOLOGIA"
+        }
+     ],
+    "pageable": {
+        "sort": {
+            "empty": false,
+            "sorted": true,
+            "unsorted": false
+        },
+        "offset": 10,
+        "pageNumber": 1,
+        "pageSize": 10,
+        "unpaged": false,
+        "paged": true
+    },
+    "totalPages": 10,
+    "totalElements": 95,
+    "last": false,
+    "size": 10,
+    "number": 1,
+    "sort": {
+        "empty": false,
+        "sorted": true,
+        "unsorted": false
+    },
+    "numberOfElements": 10,
+    "first": false,
+    "empty": false
+}
+//******************************
+// Construção do QUERY M para consumir e criar a tabela no Power BI
+
+let
+    //* Acessa uma determinada página da API através de função que recebe o número da página
+    #"Requisição" = 
+        (numeroPagina) =>
+                Json.Document(    
+                    Web.Contents("http://localhost:8080",
+                        [
+                            RelativePath = "/medicos",
+                            Query = [
+                                page = Number.ToText(numeroPagina)
+                            ] 
+                        ]
+                    )
+                ),
+
+    //* Realiza a primeira requisição trazendo o total de páginas que a API tem
+    #"Total Paginas" = 
+                        #"Requisição"(1)[totalPages],
+
+    //* Gera uma lista de registros através de uma função que irá interar com cada página trazendo o conteúdo([content])
+    #"Lista Paginas" = List.Generate(
+                                () => [Pagina = 0, Consulta = try #"Requisição"(0)[content] otherwise null],
+                                each [Pagina] < #"Total Paginas",
+                                each [Consulta = try #"Requisição"([Pagina]+1)[content] otherwise null, Pagina = [Pagina]+1 ],
+                                each [Consulta]
+    ),
+
+    //* A partir da lista de registros, converte em uma tabela
+    #"Convertido para Tabela" = Table.FromList(#"Lista Paginas", Splitter.SplitByNothing(), null, null, ExtraValues.Error), 
+
+    //* Através de 3 comandos M aninhado realiza a expansão das listas em colunas, transforma os registros em colunas e formata as colunas da tabela
+    #"Tabela" = 
+            Table.TransformColumns(    
+                Table.ExpandRecordColumn(
+                    Table.ExpandListColumn(
+                                Table.FromList(#"Lista Paginas", Splitter.SplitByNothing(), null, null, ExtraValues.Error), 
+                                "Column1"
+                    ),
+                    "Column1", 
+                    {"id", "nome", "email", "crm", "especialidade"}, 
+                    {"Id", "Nome", "Email", "CRM", "Especialidade"}
+                ),
+                {
+                    "Nome",
+                    each Text.FromBinary(Text.ToBinary(_, 1252), TextEncoding.Utf8)
+                }
+           )
+in
+    #"Tabela"
